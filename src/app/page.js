@@ -5,7 +5,7 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { Activity, AlertCircle, CheckCircle2, Clock, Key, BarChart3, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://api-radar.onrender.com";
 
 export default function Dashboard() {
   const { isLoaded, isSignedIn, user } = useUser();
