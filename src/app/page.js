@@ -5,6 +5,8 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { Activity, AlertCircle, CheckCircle2, Clock, Key, BarChart3, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
+
 export default function Dashboard() {
   const { isLoaded, isSignedIn, user } = useUser();
   const [logs, setLogs] = useState([]);
@@ -14,7 +16,7 @@ export default function Dashboard() {
   const syncUserAndFetchLogs = async () => {
     if (!isLoaded || !isSignedIn) return;
     try {
-      const syncRes = await fetch("http://127.0.0.1:8000/v1/projects/sync", {
+      const syncRes = await fetch(`${BACKEND_URL}/v1/projects/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: user.id }),
@@ -23,7 +25,7 @@ export default function Dashboard() {
       const userApiKey = syncData.api_key;
       setApiKey(userApiKey);
 
-      const logsRes = await fetch(`http://127.0.0.1:8000/v1/logs/${userApiKey}`);
+      const logsRes = await fetch(`${BACKEND_URL}/v1/logs/${userApiKey}`);
       const logsData = await logsRes.json();
       setLogs(logsData.data || []);
     } catch (error) {
