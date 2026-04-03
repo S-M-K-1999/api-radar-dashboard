@@ -5,7 +5,7 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { Activity, AlertCircle, CheckCircle2, Clock, Key, BarChart3, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function Dashboard() {
   const { isLoaded, isSignedIn, user } = useUser();
