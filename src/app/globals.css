@@ -1,8 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* That's it! v4 handles base, components, and utilities automatically */
 
 body {
-  background-color: #f8fafc; /* A very light, clean slate gray/blue */
+  background-color: #f8fafc;
   color: #0f172a;
 }
