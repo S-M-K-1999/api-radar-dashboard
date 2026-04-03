@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useUser, UserButton } from "@clerk/nextjs";
-import { Activity, AlertCircle, CheckCircle2, Clock, Key, BarChart3, TrendingUp } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { Activity, AlertCircle, CheckCircle2, Clock, Key, BarChart3, TrendingUp, Loader2 } from "lucide-react";
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://api-radar.onrender.com";
 
@@ -13,81 +13,129 @@ export default function Dashboard() {
   const [apiKey, setApiKey] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const syncUserAndFetchLogs = async () => {
-    if (!isLoaded || !isSignedIn) return;
+  // --- Logic: Sync Project (Only runs once) ---
+  const syncProject = async (token) => {
     try {
-      const syncRes = await fetch(`${BACKEND_URL}/v1/projects/sync`, {
+      const res = await fetch(`${BACKEND_URL}/v1/projects/sync`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({ user_id: user.id }),
       });
-      const syncData = await syncRes.json();
-      const userApiKey = syncData.api_key;
-      setApiKey(userApiKey);
-
-      const logsRes = await fetch(`${BACKEND_URL}/v1/logs/${userApiKey}`);
-      const logsData = await logsRes.json();
-      setLogs(logsData.data || []);
-    } catch (error) {
-      console.error("Dashboard Sync Error:", error);
-    } finally {
-      setLoading(false);
+      const data = await res.json();
+      setApiKey(data.api_key);
+      return data.api_key;
+    } catch (err) {
+      console.error("Sync Error:", err);
+      return null;
     }
   };
 
-  useEffect(() => {
-    syncUserAndFetchLogs();
-    const interval = setInterval(syncUserAndFetchLogs, 10000); // Auto-refresh every 10s
-    return () => clearInterval(interval);
-  }, [isLoaded, isSignedIn]);
+  // --- Logic: Fetch Logs (Runs on interval) ---
+  const fetchLogs = useCallback(async (token, currentApiKey) => {
+    if (!currentApiKey) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/v1/logs/${currentApiKey}`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setLogs(data.data || []);
+    } catch (err) {
+      console.error("Log Fetch Error:", err);
+    }
+  }, []);
 
-  // --- Data Processing for Charts ---
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+
+    let intervalId;
+
+    const initializeDashboard = async () => {
+      setLoading(true);
+      const token = await window.Clerk.session.getToken();
+
+      // 1. Initial Sync to get the API Key
+      const activeKey = await syncProject(token);
+
+      if (activeKey) {
+        // 2. Immediate fetch after sync
+        await fetchLogs(token, activeKey);
+
+        // 3. Start polling for logs ONLY (every 10s)
+        intervalId = setInterval(async () => {
+          const freshToken = await window.Clerk.session.getToken();
+          await fetchLogs(freshToken, activeKey);
+        }, 10000);
+      }
+
+      setLoading(false);
+    };
+
+    initializeDashboard();
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isLoaded, isSignedIn, fetchLogs]);
+
+  // --- Data Processing ---
   const stats = useMemo(() => {
-    if (logs.length === 0) return { avgLatency: 0, successRate: 0, totalErrors: 0 };
+    if (logs.length === 0) return { avgLatency: 0, successRate: 0, totalErrors: 0, chartData: [] };
     const total = logs.length;
     const errors = logs.filter(l => l.status >= 400).length;
     const latencySum = logs.reduce((acc, curr) => acc + curr.latency, 0);
-    
+
     return {
       avgLatency: Math.round(latencySum / total),
       successRate: Math.round(((total - errors) / total) * 100),
       totalErrors: errors,
-      chartData: [...logs].reverse().map((l, i) => ({ 
-        name: i, 
+      chartData: [...logs].reverse().map((l, i) => ({
+        name: i,
         latency: l.latency,
-        time: new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+        time: new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }))
     };
   }, [logs]);
 
   if (!isLoaded || !isSignedIn) return null;
 
+  if (loading && !apiKey) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
+        <Loader2 className="animate-spin text-blue-600 mb-4" size={40} />
+        <p className="text-slate-500 font-medium tracking-tight">Synchronizing with APIRadar Engine...</p>
+      </div>
+    );
+  }
+
   return (
     <main className="max-w-7xl mx-auto p-8 bg-slate-50 min-h-screen">
-      {/* Top Navigation */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-10">
         <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-lg text-white">
+          <div className="bg-blue-600 p-2 rounded-lg text-white shadow-lg shadow-blue-200">
             <Activity size={24} />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">APIRadar</h1>
         </div>
         <div className="flex items-center gap-4">
           <div className="hidden md:flex items-center gap-2 text-xs font-mono bg-white border border-slate-200 px-3 py-1.5 rounded-full text-slate-500 shadow-sm">
-            <Key size={12} className="text-blue-500" /> {apiKey || "..."}
+            <Key size={12} className="text-blue-500" /> {apiKey || "Generating..."}
           </div>
-          <UserButton afterSignOutUrl="/"/>
+          <UserButton afterSignOutUrl="/" />
         </div>
       </div>
 
-      {/* Metrics Grid */}
+      {/* Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <MetricCard title="Avg Latency" value={`${stats.avgLatency}ms`} icon={<Clock className="text-blue-500" />} />
         <MetricCard title="Success Rate" value={`${stats.successRate}%`} icon={<CheckCircle2 className="text-green-500" />} />
         <MetricCard title="Total Errors" value={stats.totalErrors} icon={<AlertCircle className="text-red-500" />} />
       </div>
 
-      {/* Chart Section */}
+      {/* Latency Chart */}
       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm mb-8">
         <div className="flex items-center gap-2 mb-6">
           <TrendingUp size={18} className="text-blue-500" />
@@ -98,8 +146,8 @@ export default function Dashboard() {
             <AreaChart data={stats.chartData}>
               <defs>
                 <linearGradient id="colorLat" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1} />
+                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -112,11 +160,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Log Table Section - Cleaner Version */}
+      {/* Stream Table */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-50 flex items-center gap-2">
-           <BarChart3 size={18} className="text-slate-400" />
-           <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wider">Live Request Stream</h3>
+          <BarChart3 size={18} className="text-slate-400" />
+          <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wider">Live Request Stream</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -130,12 +178,12 @@ export default function Dashboard() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {logs.length === 0 ? (
-                <tr><td colSpan="4" className="p-10 text-center text-slate-400 italic">Listening for incoming API calls...</td></tr>
+                <tr><td colSpan="4" className="p-10 text-center text-slate-400 italic font-medium">Listening for incoming API calls...</td></tr>
               ) : (
                 logs.map((log, i) => (
                   <tr key={i} className="hover:bg-slate-50/80 transition-all cursor-default">
                     <td className="p-4">
-                      <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${log.status >= 400 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${log.status >= 400 ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                         {log.status}
                       </span>
                     </td>
@@ -153,14 +201,13 @@ export default function Dashboard() {
   );
 }
 
-// Reusable Metric Card Component
 function MetricCard({ title, value, icon }) {
   return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-5">
-      <div className="p-3 bg-slate-50 rounded-xl">{icon}</div>
+    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-shadow">
+      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">{icon}</div>
       <div>
-        <p className="text-sm font-medium text-slate-500 mb-0.5">{title}</p>
-        <p className="text-2xl font-bold text-slate-900">{value}</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-0.5">{title}</p>
+        <p className="text-2xl font-bold text-slate-900 tracking-tight">{value}</p>
       </div>
     </div>
   );
